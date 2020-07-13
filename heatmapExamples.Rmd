@@ -1,0 +1,263 @@
+---
+title: "Heatmaps & Clustering"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, include = T)
+```
+
+## Shiny Presentation
+
+This R Markdown presentation is made interactive using Shiny. The viewers of the presentation can change the assumptions underlying what's presented and see the results immediately. 
+
+To learn more, see [Interactive Documents](http://rmarkdown.rstudio.com/authoring_shiny.html).
+
+## Distance
+
+In general, a clustering algorithm groups together proximal data points in a parameter space.
+While there are several distance measures, Euclidean distance is the most common and most intuitive. Each parameter is treated as an axis in a coordinate system, and distances can be found trigonometrically. 
+
+## Cell positions
+
+
+
+## Hierarchical Clustering
+
+Each point is joined to it's nearest neighbor in a dendrogram.
+
+```{r}
+# read data
+# ATACseq counts
+counts <- read.table('counts.tsv')
+
+# compute distances
+distance <- dist(t(as.matrix(counts)))
+
+# create dendrogram
+hclusts <- hclust(distance)
+
+# plot dendrogram
+# pdf() opens a connection to an image file & writes any subsequent plots to the file
+pdf('dendrogram.pdf')
+
+plot(hclusts)
+
+# dev.off() closes the connection. Otherwise each subsequent plot will overwrite the previous one.
+dev.off()
+
+# cut dendrogram into 5 most distal clusters
+cutree(hclusts,5)
+
+```
+## Kmeans clustering
+
+The number of clusters is predefined. K rows are selected as centers, other rows are iteratively assigned to a center to minimize distance.
+
+```{r}
+km <- kmeans(distance,5)
+
+```
+
+## ComplexHeatmap
+
+Both these methods can be used in heatmaps.
+
+```{r}
+library(ComplexHeatmap)
+hm <- Heatmap(counts)
+
+pdf('counts.pdf')
+draw(hm)
+dev.off()
+
+```
+
+## Z-score normalization
+Counts can be converted to z-scores, which can be thought of as standard deviations from the mean.
+When applied over rows, it gives the deviation from the average value of a feature. This is a way of normalizing dissimilar *measurements*, e.g. characteristics of embryos.
+When applied over columns, it gives the deviation from the average expression in a replicate. This normalizes for dissimilar *experiments* e.g. differences in sequencing depth.
+```{r}
+zscore <- function(x) {
+	m <- mean(x,na.rm=T)
+	x <- (x-m)/sd(x,na.rm=T)
+	return(x)
+}
+
+# apply() accepts a matrix & passes each row or column independently to a specified function
+# the second argument is the margin (1 for rows, 2 for columns)
+z.rows <- apply(counts,1,zscore)
+z.cols <- apply(counts,2,zscore)
+
+pdf('counts_z.pdf')
+draw(Heatmap(z.cols,show_row_names = F))
+dev.off()
+
+```
+
+## color scale
+
+By default, the color scale includes the entire range of the data, but it can be adjusted to fit only the 0.01-0.99 quantiles. 
+This requires defining a color scale with the colorRamp2 library.
+```{r}
+col.z <- function(x,quant=.01) {
+	# require() loads a library within a function call.
+	require(circlize)
+	# colorRamp2() accepts a numeric vector and a color vector.
+	# It returns a function that assigns color values to numeric values.
+	colorRamp2(
+	      c(quantile(x,quant,na.rm=T),0,quantile(x,1-quant,na.rm=T)),
+	      c('blue','white','red')
+	)
+}
+
+hm.cols <- col.z(z.cols)
+
+hm <- Heatmap(z.cols,show_row_names = F,
+	      col=hm.cols)
+
+# note that hm.cols() is a *function* and can be invoked independently of Heatmap()
+hm.cols(-3:3)
+
+draw(hm)
+
+# divide heatmap using k-means clustering
+hm.k <- Heatmap(z.cols,show_row_names = F, km=5,
+	      col=hm.cols)
+
+draw(hm.k)
+
+# the same can be done for columns
+hm.k <- Heatmap(z.cols,show_row_names = F, km=5,column_km=5,
+	      col=hm.cols)
+
+pdf('counts_z_kmeans.pdf')
+draw(hm.k)
+dev.off()
+```
+## split
+
+A heatmap can also be split into specified groups.
+```{r}
+# experimental design
+design <- read.delim('ataclib.txt',row.names=1)
+hm.k <- Heatmap(z.cols,show_row_names = F, km=5,
+	      col=hm.cols,
+	      column_split = design$condition,column_title_rot = 90)
+
+pdf('counts_z_kmeans.pdf')
+draw(hm.k)
+dev.off()
+```
+
+## simpleAnnotation
+
+ComplexHeatmap allows adding HeatmapAnnotations. This allows us to show multiple data characteristics.
+```{r}
+ann <- columnAnnotation(condition=design$condition,time=design$time)
+
+hm.k <- Heatmap(z.cols,show_row_names = F, km=5,
+	      col=hm.cols,top_annotation = ann)
+#The plot size can be adjusted by specifying height & width
+pdf('counts_z_kmeans.pdf',height=20,width=20)
+draw(hm.k)
+dev.off()
+```
+
+## setting heatmap element size
+
+```{r}
+
+hm.k <- Heatmap(z.cols,show_row_names = F, km=5,
+	      col=hm.cols,top_annotation = ann,
+	      heatmap_width = unit(2,'npc'),
+	      heatmap_height = unit(2,'npc'),
+	      width = unit(25.4,'cm'),height=unit(25.4,'cm'))
+
+draw(hm.k)
+
+hm.cell <- function(
+		x,...,
+		cell.h=NULL,cell.w=NULL,
+		height=NULL,width=NULL,
+		heatmap_height=NULL, heatmap_width=NULL,
+		units='in'
+){
+	require(ComplexHeatmap)
+	if(!is.null(cell.h)) height <- unit(nrow(x)*cell.h,units)
+	if(!is.null(cell.w)) width <- unit(ncol(x)*cell.w,units)
+	return(Heatmap(x,...,height=height,width=width))
+}
+
+hm.k <- hm.cell(z.cols,show_row_names = F, km=5,
+	      col=hm.cols,top_annotation = ann,
+	      heatmap_width = unit(2,'npc'),
+	      heatmap_height = unit(2,'npc'),
+	      cell.h=.01,cell.w=.2,units='in')
+
+pdf('counts_z_kmeans.pdf',height=20,width=20)
+draw(hm.k)
+dev.off()
+
+```
+
+## More complex annotations
+
+```{r}
+get.cols <- function(x,...){
+  setNames(rainbow(length(unique(x)),...),unique(x))
+}
+
+better.color <- function(x,...){
+  anno_simple(x,col=get.cols(x,...))
+}
+
+ann <- columnAnnotation(
+  condition=better.color(design$condition),
+  time=better.color(design$time,s=.5),
+  ncells=anno_barplot(design$ncells,height = unit(1,'in'))
+)
+
+row.ann <- rowAnnotation(
+  count.value=anno_lines(
+    cbind(mean=apply(counts,1,mean),
+          SD=apply(counts,1,sd)),
+    width = unit(1,'in'),
+    gp = gpar(col=c(1,2))
+  )
+)
+
+hm.k <- hm.cell(z.cols,show_row_names = F, km=5,
+	      col=hm.cols,top_annotation = ann,
+	      right_annotation=row.ann,
+	      heatmap_width = unit(2,'npc'),
+	      heatmap_height = unit(2,'npc'),
+	      cell.h=.01,cell.w=.2,units='in',
+	      name='z-score')
+
+pdf('counts_z_kmeans.pdf',height=20,width=20)
+draw(hm.k)
+dev.off()
+```
+
+#Adding custom legends
+
+```{r}
+lgd <- list(
+  Legend(unique(design$condition),
+         legend_gp=gpar(fill=get.cols(design$condition)), 
+         title = 'condition'),
+  Legend(unique(design$time),
+         legend_gp=gpar(fill=get.cols(design$time,s=.5)),
+         title = 'time'),
+  Legend(c("mean","SD"),
+         type='lines',
+         legend_gp = gpar(col=c(1,2)),
+         title='count value')
+)
+
+pdf('counts_z_kmeans.pdf',height=20,width=20)
+draw(hm.k, annotation_legend_list=lgd)
+dev.off()
+```
