@@ -19,10 +19,6 @@ To learn more, see [Interactive Documents](http://rmarkdown.rstudio.com/authorin
 In general, a clustering algorithm groups together proximal data points in a parameter space.
 While there are several distance measures, Euclidean distance is the most common and most intuitive. Each parameter is treated as an axis in a coordinate system, and distances can be found trigonometrically. 
 
-## Cell positions
-
-
-
 ## Hierarchical Clustering
 
 Each point is joined to it's nearest neighbor in a dendrogram.
